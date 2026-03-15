@@ -1,0 +1,13 @@
+# Chat exports (personal data)
+_chat*.txt
+
+# Generated output (personal financial data)
+*.xlsx
+*.numbers
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
