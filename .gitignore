@@ -1,7 +1,5 @@
 # Resources directory (personal data)
 resources/
-final_database/
-*.numbers
 
 # Claude Code
 .claude/

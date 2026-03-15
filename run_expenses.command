@@ -76,8 +76,8 @@ if ! "$PYTHON" -c "from datetime import datetime; datetime.strptime('01_${MONTH_
     exit 1
 fi
 
-EXP_CSV="expenses_${MONTH_LABEL}.csv"
-REV_CSV="needs_review_${MONTH_LABEL}.csv"
+EXP_CSV="resources/${MONTH_LABEL}/expenses_${MONTH_LABEL}.csv"
+REV_CSV="resources/${MONTH_LABEL}/needs_review_${MONTH_LABEL}.csv"
 
 # ── Run parser ────────────────────────────────────────────────────────────────
 echo ""
@@ -86,7 +86,7 @@ echo -e "  ${BOLD}Month     :${NC} ${MONTH_LABEL}"
 echo -e "  ${BOLD}Output    :${NC} ${EXP_CSV}  |  ${REV_CSV}"
 echo ""
 
-PYTHONPATH="scripts" "$PYTHON" scripts/parse_expenses.py main_chat.txt "$MONTH_LABEL"
+PYTHONPATH="scripts" "$PYTHON" scripts/parse_expenses.py resources/main_chat.txt "$MONTH_LABEL"
 EXIT_CODE=$?
 
 echo ""

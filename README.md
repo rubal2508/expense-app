@@ -1,82 +1,188 @@
-# Expense App
+# WhatsApp Expense Parser
 
-Parse WhatsApp group chat exports into a clean, formatted Excel spreadsheet for shared expense tracking.
+Parse a WhatsApp group chat export into structured CSV files for shared expense tracking. Supports incremental updates, automatic category detection, and monthly analysis reports.
 
-## What it does
+---
 
-You export your WhatsApp group chat to a `.txt` file, drop it in the folder, and run the script. It reads every message, extracts expense entries (amounts, dates, who paid, category), and writes them into `expenses.xlsx` with two sheets:
+## How it works
 
-- **Expenses** — all successfully parsed entries with a running total
-- **Needs Review** — anything it couldn't parse automatically (foreign currencies, ambiguous entries), flagged with a reason
+1. Export your WhatsApp group chat to a `.txt` file and place it in `resources/main_chat.txt`
+2. Double-click `run_expenses.command` and enter the month you want to process
+3. The script reads every message, extracts expenses, and writes two CSV files into `resources/{month}/`
 
-Re-running the script on an updated chat export is safe — it deduplicates against whatever's already in the Excel file using MD5 hashes, so you'll never get double entries.
+On each run the script only processes the selected month and skips any rows already present in the output file — so re-running on an updated chat export is always safe.
+
+---
+
+## Project structure
+
+```
+expense_app/
+├── run_expenses.command      # Parse chat → expenses CSV
+├── run_analysis.command      # Generate analysis CSV from expenses
+├── run_learn.command         # Learn description→category mappings
+│
+├── scripts/
+│   ├── parse_expenses.py     # Core parser
+│   ├── analyse_expenses.py   # Monthly analysis aggregator
+│   ├── learn_categories.py   # Category map updater
+│   └── categories.py         # Category enum and aliases (shared)
+│
+└── resources/                # Personal data — gitignored
+    ├── main_chat.txt         # WhatsApp chat export (your input)
+    ├── description_map.json  # Learned description → category map
+    └── feb_2026/
+        ├── expenses_feb_2026.csv
+        ├── needs_review_feb_2026.csv
+        └── analysis_feb_2026.csv
+```
+
+---
 
 ## Quick start
 
-**macOS (double-click):**
+### 1. Export your WhatsApp chat
 
-1. Export your WhatsApp chat: open the group → ⋮ → More → Export chat → Without media
-2. Rename the exported file to `_chat.txt` and place it in this folder
-3. Double-click `run_expenses.command`
+Open the group → ⋮ → More → Export chat → Without media. Rename the file to `main_chat.txt` and place it in the `resources/` folder.
 
-The script auto-installs `openpyxl` if missing and opens the Excel file when done.
+### 2. Parse expenses
 
-**Command line:**
+Double-click `run_expenses.command`. You will be prompted:
 
-```bash
-python3 parse_expenses.py _chat.txt expenses.xlsx
+```
+Enter month-year (e.g. feb 26) [default: feb 26]:
 ```
 
-Custom filenames work too:
+Press Enter to accept the default (last month), or type a month like `jan 26` or `mar 2026`. The script creates:
 
-```bash
-python3 parse_expenses.py my_chat_export.txt my_expenses.xlsx
+```
+resources/feb_2026/
+  expenses_feb_2026.csv
+  needs_review_feb_2026.csv
 ```
 
-## Requirements
+### 3. Review and fix categories
 
-- Python 3
-- `openpyxl` — installed automatically by `run_expenses.command`, or manually: `pip3 install openpyxl`
+Open `expenses_feb_2026.csv`. Rows with no category detected will have an empty Category column — fill these in manually. Then double-click `run_learn.command` to teach the script those mappings for future runs:
 
-No other dependencies, no API keys, no database.
+```
+resources/feb_2026/expenses_feb_2026.csv → description_map.json updated
+  New entries     :   12
+  Updated entries :    3
+```
+
+### 4. Generate analysis
+
+Double-click `run_analysis.command`. It reads all `resources/*/expenses_*.csv` files and writes a `analysis_{month}.csv` alongside each one:
+
+```
+resources/feb_2026/analysis_feb_2026.csv
+```
+
+### Command line usage
+
+```bash
+# Parse a specific month
+PYTHONPATH=scripts python3 scripts/parse_expenses.py resources/main_chat.txt feb_2026
+
+# Analyse a specific month
+PYTHONPATH=scripts python3 scripts/analyse_expenses.py resources/feb_2026/expenses_feb_2026.csv
+
+# Learn from all months
+PYTHONPATH=scripts python3 scripts/learn_categories.py
+```
+
+---
 
 ## Expense message format
 
 Messages are parsed if they match:
 
 ```
-[±] [₹] AMOUNT [k | lakh | lac] [description] [[category]]
+[+] [₹] AMOUNT [k | lakh | lac]  DESCRIPTION  [[CATEGORY]]
 ```
 
-**Examples:**
+### Parsed examples
 
-| Message | Amount | Description | Category |
-|---|---|---|---|
-| `460 zomato` | ₹460 | zomato | — |
-| `26k transfer to cash reserve` | ₹26,000 | transfer to cash reserve | — |
-| `10700 Dior perfume [personal]` | ₹10,700 | Dior perfume | personal |
-| `1 lakh mutual funds` | ₹1,00,000 | mutual funds | — |
-| `-500 refund received` | −₹500 | refund received | — |
+| Message | Credit | Debit | Category | Description |
+|---|---|---|---|---|
+| `460 zomato` | | 460 | FOOD | zomato |
+| `26k rent` | | 26000 | RENT | rent |
+| `10700 Dior perfume [GROOMING]` | | 10700 | GROOMING | Dior perfume |
+| `1 lakh mutual funds [INVESTMENT]` | | 100000 | INVESTMENT | mutual funds |
+| `+50000 salary [TRANSFER_EXTERNAL]` | 50000 | | TRANSFER_EXTERNAL | salary |
+| `800 gym membership` | | 800 | GYM | gym membership |
+| `500 electricity bill [HOME]` | | 500 | HOME | electricity bill |
 
-Messages in foreign currencies (USD, EUR, SGD, etc.) are automatically moved to the **Needs Review** sheet.
+### Goes to Needs Review
 
-WhatsApp system messages (encryption notices, media placeholders, group join/leave events) are silently ignored.
+| Message | Reason |
+|---|---|
+| `-500 refund` | Negative amount — manual review needed |
+| `250 USD hotel` | Foreign currency |
+| `Paid the cab driver` | Does not start with a number |
+| `Let me check the bill` | Does not start with a number |
 
-## Output
+### Category detection order (highest priority first)
 
-**Expenses sheet columns:**
+1. **Bracket tag** — `[FOOD]` in the message always wins
+2. **Description map** — learned from past manually corrected CSVs
+3. **Keyword/alias scan** — e.g. `zomato` → FOOD, `uber` → LOCAL_TRAVEL
+4. **Investment regex** — message contains `invest` or `investment`
+5. **Empty** — left blank for manual correction
+
+---
+
+## Categories
+
+Defined in `scripts/categories.py`. All category values are uppercase.
+
+| Category | Examples |
+|---|---|
+| `FOOD` | zomato, restaurant, dining |
+| `GROCERIES` | grocery, supermarket |
+| `LOCAL_TRAVEL` | uber, ola, cab, auto |
+| `LONG_TRAVEL` | flight, airport |
+| `RENT` | rent |
+| `GYM` | gym |
+| `MEDICAL` | doctor, medicine, pharmacy |
+| `GROOMING` | haircut, salon, myntra |
+| `SUBSCRIPTION` | netflix, subscription |
+| `HOME` | furniture, appliances |
+| `INVESTMENT` | mutual fund, stocks |
+| `TRANSFER_EXTERNAL` | salary, income received |
+| `TRANSFER_INTERNAL` | transfer between own accounts |
+| `OTHER_ESSENTIALS` | |
+| `OTHER_NON_ESSENTIALS` | |
+| `TREATS_AND_GIFTS` | gifts, treats |
+| `REGULAR_PARTY_VACATION` | weekend trip |
+| `BIG_PARTY_VACATION` | international holiday |
+| `SPECIAL` | one-off special expenses |
+| `PERSONAL` | personal items |
+
+To add a new alias (e.g. `swiggy` → FOOD), add a line to `_CATEGORY_ALIASES` in `scripts/categories.py`:
+
+```python
+'swiggy': Category.FOOD,
+```
+
+---
+
+## Output files
+
+### expenses_{month}.csv
 
 | Column | Content |
 |---|---|
-| Date | DD Mon YYYY |
+| Date | DD Mon YYYY (e.g. `15 Feb 2026`) |
 | Person | Sender name from WhatsApp |
-| Amount (₹) | Parsed number, right-aligned |
-| Category | Extracted from `[brackets]` in the message |
-| Description | Full message text |
+| Credit | Amount for "+" prefixed messages |
+| Debit | Amount for all regular expenses |
+| Category | Detected or manually set category |
+| Description | Message text with brackets removed |
+| _key | MD5 deduplication hash (hidden) |
 
-A `TOTAL` row with a SUM formula is added at the bottom and updated on each run.
-
-**Needs Review sheet columns:**
+### needs_review_{month}.csv
 
 | Column | Content |
 |---|---|
@@ -85,19 +191,35 @@ A `TOTAL` row with a SUM formula is added at the bottom and updated on each run.
 | Person | Sender name |
 | Raw Text | Original message text |
 | Reason | Why it wasn't auto-parsed |
+| _key | MD5 deduplication hash |
 
-## How deduplication works
+### analysis_{month}.csv
 
-Each entry gets an MD5 hash of `date | person | amount | description`. When the script runs, it reads the existing `_key` column (hidden, column F) from the Excel file and skips any rows whose hash already exists. This makes it safe to run repeatedly as the chat grows.
-
-Identical messages sent on the same day by the same person get distinct suffixes (`_0`, `_1`, …) so they aren't collapsed.
-
-## Project structure
+Rows = all categories (in enum order), Columns = each person + Total.
 
 ```
-expense_app/
-├── parse_expenses.py      # Core parser and Excel writer
-├── run_expenses.command   # macOS launcher (auto-installs deps, opens output)
-├── _chat.txt              # WhatsApp chat export (your input file)
-└── expenses.xlsx          # Generated output (created on first run)
+Category,Alice,Bob,Total
+FOOD,1200.00,800.00,2000.00
+GROCERIES,450.00,,450.00
+...
+Total Expenses,18000.00,12000.00,30000.00
+Total Income,50000.00,,50000.00
 ```
+
+- **Total Expenses** — sum of Debit, excluding TRANSFER_INTERNAL, TRANSFER_EXTERNAL, INVESTMENT
+- **Total Income** — sum of Credit where category is TRANSFER_EXTERNAL
+
+---
+
+## Deduplication
+
+Each row gets an MD5 hash of `date | person | amount | description`, stored in the hidden `_key` column. On re-run, existing keys are read first and matching rows are skipped.
+
+Two identical messages from the same person on the same day get distinct keys via an occurrence suffix (`_0`, `_1`, …), so duplicates are never collapsed incorrectly.
+
+---
+
+## Requirements
+
+- Python 3.9+
+- No external dependencies (uses only the standard library)
