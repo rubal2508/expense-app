@@ -5,6 +5,9 @@ _chat*.txt
 *.xlsx
 *.numbers
 
+# Claude Code
+.claude/
+
 # macOS
 .DS_Store
 
