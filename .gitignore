@@ -5,6 +5,7 @@ _chat*.txt
 expenses*.csv
 needs_review*.csv
 analysis*.csv
+description_map.json
 *.numbers
 
 # Claude Code
