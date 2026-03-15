@@ -63,7 +63,11 @@ CATEGORY_ALIASES: dict[str, Category] = {
     'haircut':       Category.GROOMING,
     'myntra':       Category.GROOMING,
     'clothes':       Category.GROOMING,
-}
+    # TRANSFER_EXTERNAL
+    'salary':       Category.TRANSFER_EXTERNAL,
+    # TRANSFER_INTERNAL
+    'mutual fund':       Category.TRANSFER_INTERNAL
+    }
 
 
 def normalise_category(raw: str) -> str:

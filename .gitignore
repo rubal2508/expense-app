@@ -1,4 +1,5 @@
 # Chat exports (personal data)
+main_chat.txt
 _chat*.txt
 
 # Generated output (personal financial data)

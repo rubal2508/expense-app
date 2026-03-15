@@ -32,8 +32,8 @@ fi
 # ── Check required files ──────────────────────────────────────────────────────
 MISSING=0
 
-if [ ! -f "_chat.txt" ]; then
-    echo -e "${RED}✗ _chat.txt not found in this folder${NC}"
+if [ ! -f "main_chat.txt" ]; then
+    echo -e "${RED}✗ main_chat.txt not found in this folder${NC}"
     MISSING=1
 fi
 
@@ -45,7 +45,7 @@ fi
 if [ "$MISSING" -eq 1 ]; then
     echo ""
     echo "  Make sure these files are in the same folder as this script:"
-    echo "    • _chat.txt       (exported from WhatsApp)"
+    echo "    • main_chat.txt       (exported from WhatsApp)"
     echo "    • parse_expenses.py"
     echo ""
     read -p "Press Enter to close..."
@@ -81,12 +81,12 @@ REV_CSV="needs_review_${MONTH_LABEL}.csv"
 
 # ── Run parser ────────────────────────────────────────────────────────────────
 echo ""
-echo -e "  ${BOLD}Chat file :${NC} _chat.txt"
+echo -e "  ${BOLD}Chat file :${NC} main_chat.txt"
 echo -e "  ${BOLD}Month     :${NC} ${MONTH_LABEL}"
 echo -e "  ${BOLD}Output    :${NC} ${EXP_CSV}  |  ${REV_CSV}"
 echo ""
 
-"$PYTHON" parse_expenses.py _chat.txt "$MONTH_LABEL"
+"$PYTHON" parse_expenses.py main_chat.txt "$MONTH_LABEL"
 EXIT_CODE=$?
 
 echo ""

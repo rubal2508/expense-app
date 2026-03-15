@@ -317,7 +317,7 @@ def update_csv(parsed: list, unparsed: list, exp_csv: str, rev_csv: str):
 # ── Main ──────────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
-    chat_file   = sys.argv[1] if len(sys.argv) > 1 else '_chat.txt'
+    chat_file   = sys.argv[1] if len(sys.argv) > 1 else 'main_chat.txt'
     month_label = sys.argv[2] if len(sys.argv) > 2 else None   # e.g. 'feb_2026'
 
     if month_label:
