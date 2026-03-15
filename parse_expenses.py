@@ -1,9 +1,19 @@
 import re
 import sys
 import csv
+import json
 import hashlib
 from datetime import datetime
 from categories import Category, CATEGORY_ALIASES, normalise_category
+
+# ── Description map ───────────────────────────────────────────────────────────────
+
+def load_description_map(path: str = 'description_map.json') -> dict:
+    try:
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
 
 
 # ── Regex Patterns ────────────────────────────────────────────────────────────────
@@ -106,6 +116,7 @@ def parse_chat(filepath: str, month_label: str = None):
     messages from that month are included.
     """
     parsed, unparsed = [], []
+    desc_map = load_description_map()
 
     month_filter = None
     if month_label:
@@ -175,6 +186,8 @@ def parse_chat(filepath: str, month_label: str = None):
                 amount = normalise_amount(amount_raw, sign)
                 if amount is not None:
                     category, description = extract_category(text_raw)
+                    if not category:
+                        category = desc_map.get(description.strip().lower(), '')
                     if not category:
                         for word in re.findall(r'\b\w+\b', description.lower()):
                             if word in CATEGORY_ALIASES:

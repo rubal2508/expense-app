@@ -3,7 +3,6 @@ from enum import Enum
 
 class Category(str, Enum):
     RENT                   = 'RENT'
-    INVESTMENT             = 'INVESTMENT'
     FOOD                   = 'FOOD'
     GROCERIES              = 'GROCERIES'
     LOCAL_TRAVEL           = 'LOCAL_TRAVEL'
@@ -22,6 +21,7 @@ class Category(str, Enum):
     PERSONAL               = 'PERSONAL'
     TRANSFER_EXTERNAL      = 'TRANSFER_EXTERNAL'
     TRANSFER_INTERNAL      = 'TRANSFER_INTERNAL'
+    INVESTMENT             = 'INVESTMENT'
 
 
 CATEGORY_ALIASES: dict[str, Category] = {
