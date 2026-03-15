@@ -1,12 +1,6 @@
-# Chat exports (personal data)
-main_chat.txt
-_chat*.txt
-
-# Generated output (personal financial data)
-expenses*.csv
-needs_review*.csv
-analysis*.csv
-description_map.json
+# Resources directory (personal data)
+resources/
+final_database/
 *.numbers
 
 # Claude Code

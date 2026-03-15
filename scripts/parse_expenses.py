@@ -1,3 +1,4 @@
+import os
 import re
 import sys
 import csv
@@ -8,7 +9,10 @@ from categories import Category, CATEGORY_ALIASES, normalise_category
 
 # ── Description map ───────────────────────────────────────────────────────────────
 
-def load_description_map(path: str = 'description_map.json') -> dict:
+RESOURCES_DIR = 'resources'
+
+
+def load_description_map(path: str = os.path.join(RESOURCES_DIR, 'description_map.json')) -> dict:
     try:
         with open(path, encoding='utf-8') as f:
             return json.load(f)
@@ -268,7 +272,6 @@ def _write_csv(path, fieldnames, rows, write_header):
 
 def update_csv(parsed: list, unparsed: list, exp_csv: str, rev_csv: str):
     """Append only new rows to each CSV, deduplicating via _key column."""
-    import os
     existing_exp_keys, existing_rev_keys = load_existing_keys(exp_csv, rev_csv)
 
     new_parsed   = [r for r in parsed   if r['key'] not in existing_exp_keys]
@@ -317,15 +320,17 @@ def update_csv(parsed: list, unparsed: list, exp_csv: str, rev_csv: str):
 # ── Main ──────────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
-    chat_file   = sys.argv[1] if len(sys.argv) > 1 else 'main_chat.txt'
+    chat_file   = sys.argv[1] if len(sys.argv) > 1 else os.path.join(RESOURCES_DIR, 'main_chat.txt')
     month_label = sys.argv[2] if len(sys.argv) > 2 else None   # e.g. 'feb_2026'
 
     if month_label:
-        exp_csv = f'expenses_{month_label}.csv'
-        rev_csv = f'needs_review_{month_label}.csv'
+        out_dir = os.path.join(RESOURCES_DIR, month_label)
+        os.makedirs(out_dir, exist_ok=True)
+        exp_csv = os.path.join(out_dir, f'expenses_{month_label}.csv')
+        rev_csv = os.path.join(out_dir, f'needs_review_{month_label}.csv')
     else:
-        exp_csv = 'expenses.csv'
-        rev_csv = 'needs_review.csv'
+        exp_csv = os.path.join(RESOURCES_DIR, 'expenses.csv')
+        rev_csv = os.path.join(RESOURCES_DIR, 'needs_review.csv')
 
     parsed, unparsed = parse_chat(chat_file, month_label)
     update_csv(parsed, unparsed, exp_csv, rev_csv)

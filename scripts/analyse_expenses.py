@@ -120,7 +120,7 @@ if __name__ == '__main__':
     # Collect input files — supports glob patterns and explicit paths
     args = sys.argv[1:]
     if not args:
-        args = ['expenses_*.csv']
+        args = [os.path.join('resources', '*', 'expenses_*.csv')]
 
     input_files = []
     for arg in args:

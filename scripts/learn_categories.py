@@ -12,7 +12,7 @@ import json
 import os
 from categories import Category
 
-MAP_FILE = 'description_map.json'
+MAP_FILE = os.path.join('resources', 'description_map.json')
 VALID_CATEGORIES = {c.value for c in Category}
 
 
@@ -63,7 +63,7 @@ def learn(csv_paths: list, map_file: str = MAP_FILE):
 if __name__ == '__main__':
     args = sys.argv[1:]
     if not args:
-        args = ['expenses_*.csv']
+        args = [os.path.join('resources', '*', 'expenses_*.csv')]
 
     input_files = []
     for arg in args:
