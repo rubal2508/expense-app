@@ -29,20 +29,6 @@ if [ -z "$PYTHON" ]; then
     exit 1
 fi
 
-# ── Check openpyxl ────────────────────────────────────────────────────────────
-if ! "$PYTHON" -c "import openpyxl" &>/dev/null; then
-    echo -e "${YELLOW}⚙ openpyxl not found — installing...${NC}"
-    "$PYTHON" -m pip install openpyxl --quiet
-    if ! "$PYTHON" -c "import openpyxl" &>/dev/null; then
-        echo -e "${RED}✗ Failed to install openpyxl. Try running manually:${NC}"
-        echo "    pip3 install openpyxl"
-        echo ""
-        read -p "Press Enter to close..."
-        exit 1
-    fi
-    echo -e "${GREEN}✓ openpyxl installed${NC}"
-fi
-
 # ── Check required files ──────────────────────────────────────────────────────
 MISSING=0
 
@@ -66,17 +52,46 @@ if [ "$MISSING" -eq 1 ]; then
     exit 1
 fi
 
+# ── Month selection ───────────────────────────────────────────────────────────
+DEFAULT_DISPLAY=$(date -v-1m '+%b %y' | tr '[:upper:]' '[:lower:]')   # e.g. "feb 26"
+DEFAULT_LABEL=$(date -v-1m '+%b_%Y'   | tr '[:upper:]' '[:lower:]')   # e.g. "feb_2026"
+
+echo -e "  Enter month-year ${YELLOW}(e.g. feb 26)${NC} [default: ${BOLD}${DEFAULT_DISPLAY}${NC}]:"
+read -r MONTH_INPUT
+MONTH_INPUT="${MONTH_INPUT:-$DEFAULT_DISPLAY}"
+
+# Parse "feb 26" or "feb 2026" → label "feb_2026"
+MONTH_PART=$(echo "$MONTH_INPUT" | awk '{print tolower($1)}')
+YEAR_PART=$(echo  "$MONTH_INPUT" | awk '{print $2}')
+if [ ${#YEAR_PART} -eq 2 ]; then
+    YEAR_PART="20${YEAR_PART}"
+fi
+MONTH_LABEL="${MONTH_PART}_${YEAR_PART}"
+
+# Validate by letting Python parse it
+if ! "$PYTHON" -c "from datetime import datetime; datetime.strptime('01_${MONTH_LABEL}', '%d_%b_%Y')" 2>/dev/null; then
+    echo -e "${RED}✗ Could not parse '${MONTH_INPUT}' — use a format like 'feb 26' or 'jan 2026'.${NC}"
+    echo ""
+    read -p "Press Enter to close..."
+    exit 1
+fi
+
+EXP_CSV="expenses_${MONTH_LABEL}.csv"
+REV_CSV="needs_review_${MONTH_LABEL}.csv"
+
 # ── Run parser ────────────────────────────────────────────────────────────────
+echo ""
 echo -e "  ${BOLD}Chat file :${NC} _chat.txt"
-echo -e "  ${BOLD}Output    :${NC} expenses.xlsx"
+echo -e "  ${BOLD}Month     :${NC} ${MONTH_LABEL}"
+echo -e "  ${BOLD}Output    :${NC} ${EXP_CSV}  |  ${REV_CSV}"
 echo ""
 
-"$PYTHON" parse_expenses.py _chat.txt expenses.xlsx
+"$PYTHON" parse_expenses.py _chat.txt "$MONTH_LABEL"
 EXIT_CODE=$?
 
 echo ""
 if [ $EXIT_CODE -eq 0 ]; then
-    echo -e "${GREEN}${BOLD}  Done! expenses.xlsx updated.${NC}"
+    echo -e "${GREEN}${BOLD}  Done! ${EXP_CSV} updated.${NC}"
 else
     echo -e "${RED}✗ Script exited with error code $EXIT_CODE${NC}"
     echo "  Check the output above for details."

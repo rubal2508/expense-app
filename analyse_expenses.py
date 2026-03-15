@@ -1,152 +1,136 @@
 import sys
-import hashlib
+import csv
+import glob
+import os
 from collections import defaultdict
-from datetime import datetime
-from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
+from categories import Category
 
-# ── Styling ───────────────────────────────────────────────────────────────────────
+# Categories excluded from "Total Expenses"
+EXCLUDE_FROM_EXPENSES = {Category.TRANSFER_INTERNAL.value, Category.TRANSFER_EXTERNAL.value, Category.INVESTMENT}
+# Category whose credits count as income
+INCOME_CATEGORY = Category.TRANSFER_EXTERNAL.value
 
-HEADER_FILL = PatternFill('solid', start_color='1F3864')
-ALT_FILL    = PatternFill('solid', start_color='EEF2FF')
-TOTAL_FILL  = PatternFill('solid', start_color='D9E1F2')
-thin        = Side(style='thin', color='D0D0D0')
-BORDER      = Border(left=thin, right=thin, top=thin, bottom=thin)
-
-INVESTMENT_VALUE = 'Investment'   # must match Category.INVESTMENT.value in parse_expenses.py
-
-
-def _base_style(cell, fill, fmt, align):
-    cell.font      = Font(name='Arial', size=10)
-    cell.fill      = fill
-    cell.alignment = Alignment(horizontal=align, vertical='center')
-    cell.border    = BORDER
-    if fmt:
-        cell.number_format = fmt
-
-
-def _style_header(cell):
-    cell.font      = Font(bold=True, color='FFFFFF', name='Arial', size=10)
-    cell.fill      = HEADER_FILL
-    cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    cell.border    = BORDER
-
-
-def _style_total(cell, fmt=None, align='left'):
-    cell.font      = Font(bold=True, name='Arial', size=10)
-    cell.fill      = TOTAL_FILL
-    cell.alignment = Alignment(horizontal=align, vertical='center')
-    cell.border    = BORDER
-    if fmt:
-        cell.number_format = fmt
+# Rows in the analysis — all categories except transfers, in enum definition order
+ANALYSIS_CATEGORIES = [
+    c.value for c in Category
+    if c not in (Category.TRANSFER_EXTERNAL, Category.TRANSFER_INTERNAL)
+]
 
 
 # ── Data loading ──────────────────────────────────────────────────────────────────
 
-def load_expenses(xlsx_path: str):
+def load_expenses(csv_path: str):
     """
-    Read the Expenses sheet and return monthly totals per person.
-    Excludes credits (Credit column non-null) and Investment category rows.
-
-    Expenses columns: Date(1) Person(2) Credit(3) Debit(4) Category(5) Description(6) _key(7)
+    Read expenses CSV and return:
+      debit[person][category]  -> total debit
+      credit[person][category] -> total credit
     """
-    wb = load_workbook(xlsx_path, read_only=True)
-    if 'Expenses' not in wb.sheetnames:
-        wb.close()
-        raise ValueError(f"No 'Expenses' sheet found in {xlsx_path}")
+    debit  = defaultdict(lambda: defaultdict(float))
+    credit = defaultdict(lambda: defaultdict(float))
 
-    monthly = {}  # (sort_key, label) -> defaultdict(float) of person -> total
+    with open(csv_path, newline='', encoding='utf-8') as f:
+        for row in csv.DictReader(f):
+            person   = (row.get('Person')   or '').strip()
+            category = (row.get('Category') or '').strip().upper()
+            cr       = row.get('Credit', '').strip()
+            db       = row.get('Debit',  '').strip()
 
-    for row in wb['Expenses'].iter_rows(min_row=2, values_only=True):
-        if not row or row[0] is None or row[1] == 'TOTAL':
-            continue
-        date_val, person, credit, debit, category = row[0], row[1], row[2], row[3], row[4]
-        if credit is not None or debit is None:
-            continue
-        if (category or '') == INVESTMENT_VALUE:
-            continue
-        try:
-            dt = datetime.strptime(str(date_val).strip(), '%d %b %Y')
-        except ValueError:
-            continue
-        sort_key = dt.strftime('%Y%m')
-        label    = dt.strftime('%b %Y')
-        bucket   = monthly.setdefault((sort_key, label), defaultdict(float))
-        bucket[str(person).strip()] += float(debit)
+            if not person or not category:
+                continue
+            if db:
+                debit[person][category]  += float(db)
+            if cr:
+                credit[person][category] += float(cr)
 
-    wb.close()
-    return monthly
+    return debit, credit
 
 
-# ── Analysis workbook builder ─────────────────────────────────────────────────────
+# ── Analysis CSV builder ──────────────────────────────────────────────────────────
 
-def build_analysis(monthly: dict, out_path: str):
-    """Write a new xlsx with a single Analysis sheet."""
-    if not monthly:
-        print('⚠️  No qualifying expense data found — nothing to write.')
+def build_analysis(csv_path: str, out_path: str):
+    debit, credit = load_expenses(csv_path)
+
+    all_persons    = sorted(set(debit) | set(credit))
+    all_categories = ANALYSIS_CATEGORIES   # fixed enum order, transfers excluded
+
+    if not all_persons:
+        print(f'⚠️  No data found in {csv_path}')
         return
 
-    sorted_months = sorted(monthly.keys())
-    all_persons   = sorted({p for m in monthly.values() for p in m})
-    n_persons     = len(all_persons)
+    headers = ['Category'] + all_persons + ['Total']
+    rows = []
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title        = 'Analysis'
-    ws.freeze_panes = 'B2'
-
-    # ── Headers ───────────────────────────────────────────────────────────────────
-    headers = ['Month'] + all_persons + ['Total']
-    for col, h in enumerate(headers, 1):
-        _style_header(ws.cell(row=1, column=col, value=h))
-        ws.column_dimensions[get_column_letter(col)].width = 14 if col == 1 else 16
-    ws.row_dimensions[1].height = 24
-
-    # ── Data rows ─────────────────────────────────────────────────────────────────
-    for r_idx, key in enumerate(sorted_months, 2):
-        data = monthly[key]
-        fill = ALT_FILL if r_idx % 2 == 0 else PatternFill()
-
-        _base_style(ws.cell(row=r_idx, column=1, value=key[1]), fill, None, 'left')
-
+    # ── Category rows ─────────────────────────────────────────────────────────────
+    for cat in all_categories:
         row_total = 0.0
-        for c_idx, person in enumerate(all_persons, 2):
-            val = data.get(person, None)
-            row_total += val or 0.0
-            _base_style(ws.cell(row=r_idx, column=c_idx, value=val), fill, '#,##0.00', 'right')
+        row = {'Category': cat}
+        for person in all_persons:
+            val = debit[person].get(cat, 0.0)
+            row[person] = round(val, 2) if val else ''
+            row_total += val
+        row['Total'] = round(row_total, 2)
+        rows.append(row)
 
-        tot_cell = ws.cell(row=r_idx, column=n_persons + 2, value=row_total)
-        tot_cell.font          = Font(bold=True, name='Arial', size=10)
-        tot_cell.fill          = fill
-        tot_cell.number_format = '#,##0.00'
-        tot_cell.alignment     = Alignment(horizontal='right', vertical='center')
-        tot_cell.border        = BORDER
+    # ── Total Expenses row ────────────────────────────────────────────────────────
+    exp_row = {'Category': 'Total Expenses'}
+    grand_exp = 0.0
+    for person in all_persons:
+        total = sum(
+            v for cat, v in debit[person].items()
+            if cat not in EXCLUDE_FROM_EXPENSES
+        )
+        exp_row[person] = round(total, 2)
+        grand_exp += total
+    exp_row['Total'] = round(grand_exp, 2)
+    rows.append(exp_row)
 
-    # ── Grand total row ───────────────────────────────────────────────────────────
-    grand_row   = len(sorted_months) + 2
-    grand_total = 0.0
+    # ── Total Income row ──────────────────────────────────────────────────────────
+    inc_row = {'Category': 'Total Income'}
+    grand_inc = 0.0
+    for person in all_persons:
+        total = credit[person].get(INCOME_CATEGORY, 0.0)
+        inc_row[person] = round(total, 2) if total else ''
+        grand_inc += total
+    inc_row['Total'] = round(grand_inc, 2) if grand_inc else ''
+    rows.append(inc_row)
 
-    _style_total(ws.cell(row=grand_row, column=1, value='Total'))
+    # ── Write ─────────────────────────────────────────────────────────────────────
+    with open(out_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(rows)
 
-    for c_idx, person in enumerate(all_persons, 2):
-        col_total = sum(monthly[m].get(person, 0.0) for m in sorted_months)
-        grand_total += col_total
-        _style_total(ws.cell(row=grand_row, column=c_idx, value=col_total), '#,##0.00', 'right')
+    print(f'✅  {os.path.basename(csv_path)} → {os.path.basename(out_path)}')
+    print(f'   Persons    : {", ".join(all_persons)}')
+    print(f'   Categories : {len(all_categories)}')
 
-    _style_total(ws.cell(row=grand_row, column=n_persons + 2, value=grand_total), '#,##0.00', 'right')
 
-    wb.save(out_path)
-    print(f'✅  Analysis saved → {out_path}')
-    print(f'   Months  : {len(sorted_months)}')
-    print(f'   Persons : {", ".join(all_persons)}')
+# ── Derive output filename ────────────────────────────────────────────────────────
+
+def derive_out_path(in_path: str) -> str:
+    directory = os.path.dirname(in_path) or '.'
+    basename  = os.path.basename(in_path)
+    out_name  = basename.replace('expenses', 'analysis', 1)
+    return os.path.join(directory, out_name)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
-    in_file  = sys.argv[1] if len(sys.argv) > 1 else 'expenses.xlsx'
-    out_file = sys.argv[2] if len(sys.argv) > 2 else 'analysis.xlsx'
+    # Collect input files — supports glob patterns and explicit paths
+    args = sys.argv[1:]
+    if not args:
+        args = ['expenses_*.csv']
 
-    monthly = load_expenses(in_file)
-    build_analysis(monthly, out_file)
+    input_files = []
+    for arg in args:
+        matched = glob.glob(arg)
+        input_files.extend(sorted(matched) if matched else [arg])
+
+    if not input_files:
+        print('⚠️  No matching CSV files found.')
+        sys.exit(1)
+
+    for in_file in input_files:
+        out_file = derive_out_path(in_file)
+        build_analysis(in_file, out_file)

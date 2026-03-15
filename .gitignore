@@ -2,7 +2,9 @@
 _chat*.txt
 
 # Generated output (personal financial data)
-*.xlsx
+expenses*.csv
+needs_review*.csv
+analysis*.csv
 *.numbers
 
 # Claude Code
