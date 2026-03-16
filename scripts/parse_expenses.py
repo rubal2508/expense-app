@@ -138,6 +138,16 @@ def extract_date_override(text: str, whatsapp_date_fmt: str):
     raw = m.group(1).strip()
     whatsapp_dt = datetime.strptime(whatsapp_date_fmt, '%d %b %Y')
 
+    # Month-only: {feb} or {february} → day defaults to 28, smart year
+    for fmt in ('%b', '%B'):
+        try:
+            dt = datetime.strptime(raw, fmt)
+            year = _infer_year(dt.month, 28, whatsapp_dt)
+            dt = dt.replace(day=28, year=year)
+            return dt.strftime('%d %b %Y'), DATE_OVERRIDE_RE.sub('', text).strip()
+        except ValueError:
+            continue
+
     for fmt, needs_year in _DATE_FORMATS:
         try:
             dt = datetime.strptime(raw, fmt)
