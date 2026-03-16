@@ -142,8 +142,8 @@ USER_OVERRIDES: dict[str, Category] = {
 # in the WhatsApp chat (case-insensitive). The target must match an actual
 # sender, otherwise the override is rejected and goes to needs_review.
 PERSON_ALIASES: dict[str, str] = {
-    # 'priya': 'priyasha',
-    # 'piyu':  'priyasha',
+    'priya': 'priyasha',
+    'piyu':  'priyasha',
 }
 
 
