@@ -40,8 +40,25 @@ EXPENSE_RE = re.compile(
     re.IGNORECASE
 )
 
-CATEGORY_RE  = re.compile(r'#(\w+)')
-EDITED_RE    = re.compile(r'[\s\u200e]*<This message was edited>\s*$')
+CATEGORY_RE      = re.compile(r'#(\w+)')
+DATE_OVERRIDE_RE = re.compile(r'\{([^}]+)\}')
+EDITED_RE        = re.compile(r'[\s\u200e]*<This message was edited>\s*$')
+
+# Ordered most-specific first; bool = needs smart year inference
+_DATE_FORMATS = [
+    ('%d-%m-%Y', False),  # 14-02-2026
+    ('%d/%m/%Y', False),  # 14/02/2026
+    ('%d %b %Y', False),  # 14 feb 2026
+    ('%d-%b-%Y', False),  # 14-feb-2026
+    ('%d-%m-%y', False),  # 14-02-26
+    ('%d/%m/%y', False),  # 14/02/26
+    ('%d %b %y', False),  # 14 feb 26
+    ('%d-%b-%y', False),  # 14-feb-26
+    ('%d %b',    True),   # 14 feb
+    ('%d-%b',    True),   # 14-feb
+    ('%d/%m',    True),   # 14/02
+    ('%d-%m',    True),   # 14-02
+]
 DELETED_RE   = re.compile(r'(You deleted this message|This message was deleted)', re.IGNORECASE)
 
 IGNORE_PATTERNS = [
@@ -98,6 +115,39 @@ def extract_category(text: str):
 def is_ignored(body: str) -> bool:
     return any(p.search(body) for p in IGNORE_PATTERNS)
 
+
+def _infer_year(override_month: int, whatsapp_dt: datetime) -> int:
+    """If the override month is ahead of the WhatsApp month it must be last year."""
+    if override_month > whatsapp_dt.month:
+        return whatsapp_dt.year - 1
+    return whatsapp_dt.year
+
+
+def extract_date_override(text: str, whatsapp_date_fmt: str):
+    """
+    Look for {date} in text. Returns (effective_date_str | None, cleaned_text).
+    If the tag is present but unparseable the text is returned unchanged and
+    None is returned so the WhatsApp date is used as fallback.
+    """
+    m = DATE_OVERRIDE_RE.search(text)
+    if not m:
+        return None, text
+
+    raw = m.group(1).strip()
+    whatsapp_dt = datetime.strptime(whatsapp_date_fmt, '%d %b %Y')
+
+    for fmt, needs_year in _DATE_FORMATS:
+        try:
+            dt = datetime.strptime(raw, fmt)
+            if needs_year:
+                dt = dt.replace(year=_infer_year(dt.month, whatsapp_dt))
+            cleaned = DATE_OVERRIDE_RE.sub('', text).strip()
+            return dt.strftime('%d %b %Y'), cleaned
+        except ValueError:
+            continue
+
+    return None, text  # tag present but unrecognised — leave text as-is
+
 # ── Message grouping ──────────────────────────────────────────────────────────────
 
 def group_messages(lines):
@@ -121,6 +171,9 @@ def parse_chat(filepath: str, month_label: str = None):
     """
     Parse the chat file. If month_label is given (e.g. 'feb_2026') only
     messages from that month are included.
+
+    Date overrides ({DD Mon}) are resolved before month filtering, so a
+    message sent in March with {14-02-26} can contribute to a February run.
     """
     parsed, unparsed = [], []
     desc_map = load_description_map()
@@ -141,15 +194,7 @@ def parse_chat(filepath: str, month_label: str = None):
 
         date_str, _, person, body = m.groups()
         person, body = person.strip(), body.strip()
-        date_fmt = fmt_date(date_str)
-
-        if month_filter:
-            try:
-                msg_dt = datetime.strptime(date_fmt, '%d %b %Y')
-                if (msg_dt.month, msg_dt.year) != month_filter:
-                    continue
-            except ValueError:
-                continue
+        whatsapp_date = fmt_date(date_str)
 
         if is_ignored(body):
             continue
@@ -161,12 +206,25 @@ def parse_chat(filepath: str, month_label: str = None):
             if DELETED_RE.search(sub):
                 continue
 
+            # Date override must run before month filter
+            effective_date, sub = extract_date_override(sub, whatsapp_date)
+            effective_date = effective_date or whatsapp_date
+
+            # Month filter on effective date
+            if month_filter:
+                try:
+                    eff_dt = datetime.strptime(effective_date, '%d %b %Y')
+                    if (eff_dt.month, eff_dt.year) != month_filter:
+                        continue
+                except ValueError:
+                    continue
+
             # Foreign currency
             if FOREIGN_SUFFIX_RE.match(sub):
                 unparsed.append({
-                    'line_no': line_no, 'date': date_fmt, 'person': person,
+                    'line_no': line_no, 'date': effective_date, 'person': person,
                     'text': sub, 'reason': 'Foreign currency — manual review needed',
-                    'key': make_key(date_fmt, person, sub),
+                    'key': make_key(effective_date, person, sub),
                 })
                 continue
 
@@ -174,9 +232,9 @@ def parse_chat(filepath: str, month_label: str = None):
             bare = sub.lstrip('+-').lstrip()
             if not bare or not bare[0].isdigit():
                 unparsed.append({
-                    'line_no': line_no, 'date': date_fmt, 'person': person,
+                    'line_no': line_no, 'date': effective_date, 'person': person,
                     'text': sub, 'reason': 'Does not start with a number',
-                    'key': make_key(date_fmt, person, sub),
+                    'key': make_key(effective_date, person, sub),
                 })
                 continue
 
@@ -185,9 +243,9 @@ def parse_chat(filepath: str, month_label: str = None):
                 sign, amount_raw, text_raw = exp_m.groups()
                 if sign == '-':
                     unparsed.append({
-                        'line_no': line_no, 'date': date_fmt, 'person': person,
+                        'line_no': line_no, 'date': effective_date, 'person': person,
                         'text': sub, 'reason': 'Negative amount — manual review needed',
-                        'key': make_key(date_fmt, person, sub),
+                        'key': make_key(effective_date, person, sub),
                     })
                     continue
                 amount = normalise_amount(amount_raw, sign)
@@ -209,22 +267,22 @@ def parse_chat(filepath: str, month_label: str = None):
                                     category = USER_OVERRIDES[matches[0]].value
                                     break
                     parsed.append({
-                        'line_no': line_no, 'date': date_fmt, 'person': person,
+                        'line_no': line_no, 'date': effective_date, 'person': person,
                         'amount': amount, 'is_credit': sign == '+',
                         'category': category, 'description': description,
-                        'key': make_key(date_fmt, person, amount, description),
+                        'key': make_key(effective_date, person, amount, description),
                     })
                 else:
                     unparsed.append({
-                        'line_no': line_no, 'date': date_fmt, 'person': person,
+                        'line_no': line_no, 'date': effective_date, 'person': person,
                         'text': sub, 'reason': 'Could not parse amount',
-                        'key': make_key(date_fmt, person, sub),
+                        'key': make_key(effective_date, person, sub),
                     })
             else:
                 unparsed.append({
-                    'line_no': line_no, 'date': date_fmt, 'person': person,
+                    'line_no': line_no, 'date': effective_date, 'person': person,
                     'text': sub, 'reason': 'No expense pattern matched',
-                    'key': make_key(date_fmt, person, sub),
+                    'key': make_key(effective_date, person, sub),
                 })
 
     _stamp_occurrence_keys(parsed)
