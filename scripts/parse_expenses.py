@@ -116,6 +116,11 @@ def is_ignored(body: str) -> bool:
     return any(p.search(body) for p in IGNORE_PATTERNS)
 
 
+def _clean(text: str) -> str:
+    """Remove a {date} tag and collapse any resulting double spaces."""
+    return re.sub(r'\s{2,}', ' ', DATE_OVERRIDE_RE.sub('', text)).strip()
+
+
 def _infer_year(month: int, day: int, whatsapp_dt: datetime) -> int:
     """Pick the year (same or previous) that puts the date closest to the WhatsApp date."""
     from datetime import date as date_
@@ -144,7 +149,7 @@ def extract_date_override(text: str, whatsapp_date_fmt: str):
             dt = datetime.strptime(raw, fmt)
             year = _infer_year(dt.month, 28, whatsapp_dt)
             dt = dt.replace(day=28, year=year)
-            return dt.strftime('%d %b %Y'), DATE_OVERRIDE_RE.sub('', text).strip()
+            return dt.strftime('%d %b %Y'), _clean(text)
         except ValueError:
             continue
 
@@ -153,8 +158,7 @@ def extract_date_override(text: str, whatsapp_date_fmt: str):
             dt = datetime.strptime(raw, fmt)
             if needs_year:
                 dt = dt.replace(year=_infer_year(dt.month, dt.day, whatsapp_dt))
-            cleaned = DATE_OVERRIDE_RE.sub('', text).strip()
-            return dt.strftime('%d %b %Y'), cleaned
+            return dt.strftime('%d %b %Y'), _clean(text)
         except ValueError:
             continue
 
@@ -240,8 +244,8 @@ def parse_chat(filepath: str, month_label: str = None):
                 })
                 continue
 
-            # Must start with digit
-            bare = sub.lstrip('+-').lstrip()
+            # Must start with digit (optional leading +/- and ₹)
+            bare = sub.lstrip('+-').lstrip().lstrip('₹').lstrip()
             if not bare or not bare[0].isdigit():
                 unparsed.append({
                     'line_no': line_no, 'date': effective_date, 'person': person,
