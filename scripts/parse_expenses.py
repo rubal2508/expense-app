@@ -116,11 +116,13 @@ def is_ignored(body: str) -> bool:
     return any(p.search(body) for p in IGNORE_PATTERNS)
 
 
-def _infer_year(override_month: int, whatsapp_dt: datetime) -> int:
-    """If the override month is ahead of the WhatsApp month it must be last year."""
-    if override_month > whatsapp_dt.month:
-        return whatsapp_dt.year - 1
-    return whatsapp_dt.year
+def _infer_year(month: int, day: int, whatsapp_dt: datetime) -> int:
+    """Pick the year (same or previous) that puts the date closest to the WhatsApp date."""
+    from datetime import date as date_
+    ref  = whatsapp_dt.date()
+    same = abs((date_(whatsapp_dt.year,     month, day) - ref).days)
+    prev = abs((date_(whatsapp_dt.year - 1, month, day) - ref).days)
+    return whatsapp_dt.year - 1 if prev < same else whatsapp_dt.year
 
 
 def extract_date_override(text: str, whatsapp_date_fmt: str):
@@ -140,7 +142,7 @@ def extract_date_override(text: str, whatsapp_date_fmt: str):
         try:
             dt = datetime.strptime(raw, fmt)
             if needs_year:
-                dt = dt.replace(year=_infer_year(dt.month, whatsapp_dt))
+                dt = dt.replace(year=_infer_year(dt.month, dt.day, whatsapp_dt))
             cleaned = DATE_OVERRIDE_RE.sub('', text).strip()
             return dt.strftime('%d %b %Y'), cleaned
         except ValueError:
