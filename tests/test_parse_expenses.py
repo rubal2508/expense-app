@@ -266,6 +266,30 @@ class TestParseChat(unittest.TestCase):
         parsed, _ = run_parse([wa_msg('15/02/26', 'Alice', '₹460 zomato')], 'feb_2026')
         self.assertEqual(parsed[0]['amount'], 460.0)
 
+    def test_amount_only_no_description(self):
+        parsed, _ = run_parse([wa_msg('15/02/26', 'Alice', '100')], 'feb_2026')
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]['amount'], 100.0)
+        self.assertEqual(parsed[0]['description'], '')
+
+    def test_decimal_amount_no_description(self):
+        parsed, _ = run_parse([wa_msg('15/02/26', 'Alice', '100.00')], 'feb_2026')
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]['amount'], 100.0)
+
+    def test_indian_comma_format(self):
+        parsed, _ = run_parse([wa_msg('15/02/26', 'Alice', '1,00,000 rent')], 'feb_2026')
+        self.assertEqual(parsed[0]['amount'], 100000.0)
+
+    def test_western_comma_format(self):
+        parsed, _ = run_parse([wa_msg('15/02/26', 'Alice', '100,000 rent')], 'feb_2026')
+        self.assertEqual(parsed[0]['amount'], 100000.0)
+
+    def test_comma_format_no_description(self):
+        parsed, _ = run_parse([wa_msg('15/02/26', 'Alice', '1,00,000')], 'feb_2026')
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]['amount'], 100000.0)
+
     # ── Month filtering ───────────────────────────────────────────────────────
 
     def test_month_filter_excludes_wrong_month(self):

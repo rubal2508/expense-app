@@ -36,7 +36,7 @@ FOREIGN_SUFFIX_RE = re.compile(
 EXPENSE_RE = re.compile(
     r'^([+\-])?\s*(?:₹\s*)?'
     r'(\d[\d,]*(?:\.\d+)?(?:\s*(?:k|lakh|lac))?)'
-    r'\s+(.+)$',
+    r'(?:\s+(.+))?$',
     re.IGNORECASE
 )
 
@@ -257,6 +257,7 @@ def parse_chat(filepath: str, month_label: str = None):
             exp_m = EXPENSE_RE.match(sub)
             if exp_m:
                 sign, amount_raw, text_raw = exp_m.groups()
+                text_raw = text_raw or ''
                 if sign == '-':
                     unparsed.append({
                         'line_no': line_no, 'date': effective_date, 'person': person,
