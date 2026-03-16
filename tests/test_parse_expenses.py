@@ -14,8 +14,8 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
-from parse_expenses import extract_date_override, _infer_year, extract_category, parse_chat
-from categories import normalise_category
+from parse_expenses import extract_date_override, _infer_year, extract_category, parse_chat, build_person_map, extract_person_override
+from categories import normalise_category, PERSON_ALIASES
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -388,6 +388,114 @@ class TestParseChat(unittest.TestCase):
         self.assertNotEqual(parsed[0]['key'], parsed[1]['key'])
         self.assertTrue(parsed[0]['key'].endswith('_0'))
         self.assertTrue(parsed[1]['key'].endswith('_1'))
+
+
+# ── build_person_map ──────────────────────────────────────────────────────────
+
+class TestBuildPersonMap(unittest.TestCase):
+
+    def _lines(self, names):
+        return [wa_msg('15/02/26', n, '100 food') for n in names]
+
+    def test_first_name_alias(self):
+        pm = build_person_map(self._lines(['Aman Garg']))
+        self.assertEqual(pm.get('aman'), 'Aman Garg')
+
+    def test_full_name_alias(self):
+        pm = build_person_map(self._lines(['Aman Garg']))
+        self.assertEqual(pm.get('amangarg'), 'Aman Garg')
+
+    def test_single_name(self):
+        pm = build_person_map(self._lines(['Priyasha']))
+        self.assertEqual(pm.get('priyasha'), 'Priyasha')
+
+    def test_ambiguous_first_name_dropped(self):
+        # Two people named Aman → first name alias removed, full names kept
+        pm = build_person_map(self._lines(['Aman Garg', 'Aman Singh']))
+        self.assertNotIn('aman', pm)
+        self.assertEqual(pm.get('amangarg'), 'Aman Garg')
+        self.assertEqual(pm.get('amansingh'), 'Aman Singh')
+
+
+# ── extract_person_override ───────────────────────────────────────────────────
+
+class TestExtractPersonOverride(unittest.TestCase):
+
+    PERSON_MAP = {
+        'aman':     'Aman Garg',
+        'amangarg': 'Aman Garg',
+        'priyasha': 'Priyasha',
+    }
+
+    def test_no_override(self):
+        name, text, reason = extract_person_override('100 food', self.PERSON_MAP)
+        self.assertIsNone(name)
+        self.assertEqual(text, '100 food')
+        self.assertEqual(reason, '')
+
+    def test_first_name_match(self):
+        name, text, reason = extract_person_override('100 food !aman', self.PERSON_MAP)
+        self.assertEqual(name, 'Aman Garg')
+        self.assertEqual(text, '100 food')
+        self.assertEqual(reason, '')
+
+    def test_full_name_match(self):
+        name, _, _ = extract_person_override('100 food !amangarg', self.PERSON_MAP)
+        self.assertEqual(name, 'Aman Garg')
+
+    def test_person_alias_via_PERSON_ALIASES(self):
+        # Temporarily inject an alias for this test
+        PERSON_ALIASES['piyu'] = 'priyasha'
+        try:
+            name, text, reason = extract_person_override('100 food !piyu', self.PERSON_MAP)
+            self.assertEqual(name, 'Priyasha')
+            self.assertEqual(text, '100 food')
+        finally:
+            del PERSON_ALIASES['piyu']
+
+    def test_unknown_alias_to_review(self):
+        name, text, reason = extract_person_override('100 food !xyz', self.PERSON_MAP)
+        self.assertIsNone(name)
+        self.assertIn('!xyz', reason)
+        self.assertIn('{', text) if '{' in text else None  # text unchanged
+
+    def test_alias_not_in_person_map_to_review(self):
+        # PERSON_ALIASES points to a name not in the chat
+        PERSON_ALIASES['ghost'] = 'nobody'
+        try:
+            name, _, reason = extract_person_override('100 food !ghost', self.PERSON_MAP)
+            self.assertIsNone(name)
+            self.assertIn('!ghost', reason)
+        finally:
+            del PERSON_ALIASES['ghost']
+
+    def test_tag_stripped_from_description(self):
+        _, text, _ = extract_person_override('100 food !aman extra', self.PERSON_MAP)
+        self.assertEqual(text, '100 food extra')
+
+
+# ── parse_chat person override (integration) ──────────────────────────────────
+
+class TestParseChatPersonOverride(unittest.TestCase):
+
+    def test_person_override_replaces_sender(self):
+        lines = [
+            wa_msg('15/02/26', 'Aman Garg', '100 food'),
+            wa_msg('15/02/26', 'Aman Garg', '200 rent !priyasha'),
+            wa_msg('15/02/26', 'Priyasha', '300 groceries'),
+        ]
+        parsed, _ = run_parse(lines, 'feb_2026')
+        persons = {r['amount']: r['person'] for r in parsed}
+        self.assertEqual(persons[100.0], 'Aman Garg')
+        self.assertEqual(persons[200.0], 'Priyasha')   # overridden
+        self.assertEqual(persons[300.0], 'Priyasha')
+
+    def test_unknown_person_override_to_review(self):
+        lines = [wa_msg('15/02/26', 'Aman Garg', '100 food !nobody')]
+        parsed, unparsed = run_parse(lines, 'feb_2026')
+        self.assertEqual(len(parsed), 0)
+        self.assertEqual(len(unparsed), 1)
+        self.assertIn('!nobody', unparsed[0]['reason'])
 
 
 if __name__ == '__main__':

@@ -138,6 +138,14 @@ USER_OVERRIDES: dict[str, Category] = {
     'concert':           Category.REGULAR_PARTY_VACATION,
 }
 
+# Personal name aliases — maps nickname/shorthand to the name as it appears
+# in the WhatsApp chat (case-insensitive). The target must match an actual
+# sender, otherwise the override is rejected and goes to needs_review.
+PERSON_ALIASES: dict[str, str] = {
+    # 'priya': 'priyasha',
+    # 'piyu':  'priyasha',
+}
+
 
 def normalise_category(raw: str) -> str:
     """Map a #hashtag to a canonical Category value, or '' if unrecognised."""

@@ -6,7 +6,7 @@ import json
 import hashlib
 from difflib import get_close_matches
 from datetime import datetime
-from categories import Category, USER_OVERRIDES, normalise_category
+from categories import Category, USER_OVERRIDES, PERSON_ALIASES, normalise_category
 
 # ── Description map ───────────────────────────────────────────────────────────────
 
@@ -40,8 +40,9 @@ EXPENSE_RE = re.compile(
     re.IGNORECASE
 )
 
-CATEGORY_RE      = re.compile(r'#(\w+)')
-DATE_OVERRIDE_RE = re.compile(r'\{([^}]+)\}')
+CATEGORY_RE       = re.compile(r'#(\w+)')
+DATE_OVERRIDE_RE  = re.compile(r'\{([^}]+)\}')
+PERSON_OVERRIDE_RE = re.compile(r'!(\w+)')
 EDITED_RE        = re.compile(r'[\s\u200e]*<This message was edited>\s*$')
 
 # Ordered most-specific first; bool = needs smart year inference
@@ -116,9 +117,9 @@ def is_ignored(body: str) -> bool:
     return any(p.search(body) for p in IGNORE_PATTERNS)
 
 
-def _clean(text: str) -> str:
-    """Remove a {date} tag and collapse any resulting double spaces."""
-    return re.sub(r'\s{2,}', ' ', DATE_OVERRIDE_RE.sub('', text)).strip()
+def _clean(text: str, pattern: re.Pattern) -> str:
+    """Remove a tag matched by pattern and collapse any resulting double spaces."""
+    return re.sub(r'\s{2,}', ' ', pattern.sub('', text)).strip()
 
 
 def _infer_year(month: int, day: int, whatsapp_dt: datetime) -> int:
@@ -149,7 +150,7 @@ def extract_date_override(text: str, whatsapp_date_fmt: str):
             dt = datetime.strptime(raw, fmt)
             year = _infer_year(dt.month, 28, whatsapp_dt)
             dt = dt.replace(day=28, year=year)
-            return dt.strftime('%d %b %Y'), _clean(text)
+            return dt.strftime('%d %b %Y'), _clean(text, DATE_OVERRIDE_RE)
         except ValueError:
             continue
 
@@ -158,11 +159,62 @@ def extract_date_override(text: str, whatsapp_date_fmt: str):
             dt = datetime.strptime(raw, fmt)
             if needs_year:
                 dt = dt.replace(year=_infer_year(dt.month, dt.day, whatsapp_dt))
-            return dt.strftime('%d %b %Y'), _clean(text)
+            return dt.strftime('%d %b %Y'), _clean(text, DATE_OVERRIDE_RE)
         except ValueError:
             continue
 
     return None, text  # tag present but unrecognised — leave text as-is
+
+
+def build_person_map(raw_lines: list) -> dict:
+    """
+    Scan all messages to collect unique sender names and build an alias map:
+      first name (if unambiguous) → full name
+      firstnamelastname           → full name
+    """
+    names = set()
+    for _, msg in group_messages(raw_lines):
+        m = MSG_RE.match(msg)
+        if m:
+            names.add(m.group(3).strip())
+
+    first_name_count: dict = {}
+    for name in names:
+        first = name.split()[0].lower()
+        first_name_count[first] = first_name_count.get(first, 0) + 1
+
+    person_map: dict = {}
+    for name in names:
+        parts = name.split()
+        first = parts[0].lower()
+        full  = ''.join(parts).lower()
+        person_map[full] = name
+        if first_name_count[first] == 1:
+            person_map[first] = name
+
+    return person_map
+
+
+def extract_person_override(text: str, person_map: dict):
+    """
+    Look for !alias in text.
+    Resolution chain: PERSON_ALIASES → person_map → actual sender name.
+    Returns (resolved_name | None, cleaned_text, reason).
+    reason is non-empty when the tag was found but could not be resolved.
+    """
+    m = PERSON_OVERRIDE_RE.search(text)
+    if not m:
+        return None, text, ''
+
+    alias = m.group(1).lower()
+    # Step 1: apply personal nickname map
+    resolved = PERSON_ALIASES.get(alias, alias)
+    # Step 2: look up against actual chat senders
+    name = person_map.get(resolved.lower())
+    if name:
+        return name, _clean(text, PERSON_OVERRIDE_RE), ''
+
+    return None, text, f"Unknown person override '!{m.group(1)}'"
 
 # ── Message grouping ──────────────────────────────────────────────────────────────
 
@@ -202,6 +254,8 @@ def parse_chat(filepath: str, month_label: str = None):
     with open(filepath, encoding='utf-8') as f:
         raw_lines = f.readlines()
 
+    person_map = build_person_map(raw_lines)
+
     for line_no, msg in group_messages(raw_lines):
         msg = EDITED_RE.sub('', msg)
         m   = MSG_RE.match(msg)
@@ -226,6 +280,17 @@ def parse_chat(filepath: str, month_label: str = None):
             effective_date, sub = extract_date_override(sub, whatsapp_date)
             effective_date = effective_date or whatsapp_date
 
+            # Person override
+            override_person, sub, person_reason = extract_person_override(sub, person_map)
+            if person_reason:
+                unparsed.append({
+                    'line_no': line_no, 'date': effective_date, 'person': person,
+                    'text': sub, 'reason': person_reason,
+                    'key': make_key(effective_date, person, sub),
+                })
+                continue
+            effective_person = override_person or person
+
             # Month filter on effective date
             if month_filter:
                 try:
@@ -238,9 +303,9 @@ def parse_chat(filepath: str, month_label: str = None):
             # Foreign currency
             if FOREIGN_SUFFIX_RE.match(sub):
                 unparsed.append({
-                    'line_no': line_no, 'date': effective_date, 'person': person,
+                    'line_no': line_no, 'date': effective_date, 'person': effective_person,
                     'text': sub, 'reason': 'Foreign currency — manual review needed',
-                    'key': make_key(effective_date, person, sub),
+                    'key': make_key(effective_date, effective_person, sub),
                 })
                 continue
 
@@ -248,9 +313,9 @@ def parse_chat(filepath: str, month_label: str = None):
             bare = sub.lstrip('+-').lstrip().lstrip('₹').lstrip()
             if not bare or not bare[0].isdigit():
                 unparsed.append({
-                    'line_no': line_no, 'date': effective_date, 'person': person,
+                    'line_no': line_no, 'date': effective_date, 'person': effective_person,
                     'text': sub, 'reason': 'Does not start with a number',
-                    'key': make_key(effective_date, person, sub),
+                    'key': make_key(effective_date, effective_person, sub),
                 })
                 continue
 
@@ -259,16 +324,16 @@ def parse_chat(filepath: str, month_label: str = None):
                 sign, amount_raw, text_raw = exp_m.groups()
                 if not text_raw or not text_raw.strip():
                     unparsed.append({
-                        'line_no': line_no, 'date': effective_date, 'person': person,
+                        'line_no': line_no, 'date': effective_date, 'person': effective_person,
                         'text': sub, 'reason': 'No description provided',
-                        'key': make_key(effective_date, person, sub),
+                        'key': make_key(effective_date, effective_person, sub),
                     })
                     continue
                 if sign == '-':
                     unparsed.append({
-                        'line_no': line_no, 'date': effective_date, 'person': person,
+                        'line_no': line_no, 'date': effective_date, 'person': effective_person,
                         'text': sub, 'reason': 'Negative amount — manual review needed',
-                        'key': make_key(effective_date, person, sub),
+                        'key': make_key(effective_date, effective_person, sub),
                     })
                     continue
                 amount = normalise_amount(amount_raw, sign)
@@ -290,22 +355,22 @@ def parse_chat(filepath: str, month_label: str = None):
                                     category = USER_OVERRIDES[matches[0]].value
                                     break
                     parsed.append({
-                        'line_no': line_no, 'date': effective_date, 'person': person,
+                        'line_no': line_no, 'date': effective_date, 'person': effective_person,
                         'amount': amount, 'is_credit': sign == '+',
                         'category': category, 'description': description,
-                        'key': make_key(effective_date, person, amount, description),
+                        'key': make_key(effective_date, effective_person, amount, description),
                     })
                 else:
                     unparsed.append({
-                        'line_no': line_no, 'date': effective_date, 'person': person,
+                        'line_no': line_no, 'date': effective_date, 'person': effective_person,
                         'text': sub, 'reason': 'Could not parse amount',
-                        'key': make_key(effective_date, person, sub),
+                        'key': make_key(effective_date, effective_person, sub),
                     })
             else:
                 unparsed.append({
-                    'line_no': line_no, 'date': effective_date, 'person': person,
+                    'line_no': line_no, 'date': effective_date, 'person': effective_person,
                     'text': sub, 'reason': 'No expense pattern matched',
-                    'key': make_key(effective_date, person, sub),
+                    'key': make_key(effective_date, effective_person, sub),
                 })
 
     _stamp_occurrence_keys(parsed)
