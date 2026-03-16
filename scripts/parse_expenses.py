@@ -4,8 +4,9 @@ import sys
 import csv
 import json
 import hashlib
+from difflib import get_close_matches
 from datetime import datetime
-from categories import Category, CATEGORY_ALIASES, normalise_category
+from categories import Category, USER_OVERRIDES, normalise_category
 
 # ── Description map ───────────────────────────────────────────────────────────────
 
@@ -39,7 +40,7 @@ EXPENSE_RE = re.compile(
     re.IGNORECASE
 )
 
-CATEGORY_RE  = re.compile(r'\[([^\]]+)\]')
+CATEGORY_RE  = re.compile(r'#(\w+)')
 EDITED_RE    = re.compile(r'[\s\u200e]*<This message was edited>\s*$')
 DELETED_RE   = re.compile(r'(You deleted this message|This message was deleted)', re.IGNORECASE)
 
@@ -88,7 +89,9 @@ def normalise_amount(raw: str, sign):
 def extract_category(text: str):
     m = CATEGORY_RE.search(text)
     if m:
-        return normalise_category(m.group(1).strip()), CATEGORY_RE.sub('', text).strip()
+        cat = normalise_category(m.group(1).strip())
+        if cat:
+            return cat, CATEGORY_RE.sub('', text).strip()
     return '', text
 
 
@@ -193,12 +196,18 @@ def parse_chat(filepath: str, month_label: str = None):
                     if not category:
                         category = desc_map.get(description.strip().lower(), '')
                     if not category:
-                        for word in re.findall(r'\b\w+\b', description.lower()):
-                            if word in CATEGORY_ALIASES:
-                                category = CATEGORY_ALIASES[word].value
+                        desc_lower = description.lower()
+                        for alias in sorted(USER_OVERRIDES, key=len, reverse=True):
+                            if alias in desc_lower:
+                                category = USER_OVERRIDES[alias].value
                                 break
-                    if not category and re.search(r'\binvest(ment)?\b', description, re.IGNORECASE):
-                        category = Category.INVESTMENT.value
+                    if not category:
+                        for word in re.findall(r'\b\w+\b', description.lower()):
+                            if len(word) >= 5:
+                                matches = get_close_matches(word, USER_OVERRIDES, n=1, cutoff=0.82)
+                                if matches:
+                                    category = USER_OVERRIDES[matches[0]].value
+                                    break
                     parsed.append({
                         'line_no': line_no, 'date': date_fmt, 'person': person,
                         'amount': amount, 'is_credit': sign == '+',

@@ -99,7 +99,7 @@ PYTHONPATH=scripts python3 scripts/learn_categories.py
 Messages are parsed if they match:
 
 ```
-[+] [₹] AMOUNT [k | lakh | lac]  DESCRIPTION  [[CATEGORY]]
+[+] [₹] AMOUNT [k | lakh | lac]  DESCRIPTION  [#CATEGORY]
 ```
 
 ### Parsed examples
@@ -108,11 +108,12 @@ Messages are parsed if they match:
 |---|---|---|---|---|
 | `460 zomato` | | 460 | FOOD | zomato |
 | `26k rent` | | 26000 | RENT | rent |
-| `10700 Dior perfume [GROOMING]` | | 10700 | GROOMING | Dior perfume |
-| `1 lakh mutual funds [INVESTMENT]` | | 100000 | INVESTMENT | mutual funds |
-| `+50000 salary [TRANSFER_EXTERNAL]` | 50000 | | TRANSFER_EXTERNAL | salary |
+| `10700 Dior perfume #GROOMING` | | 10700 | GROOMING | Dior perfume |
+| `1 lakh mutual funds #INVESTMENT` | | 100000 | INVESTMENT | mutual funds |
+| `+50000 salary #TRANSFER_EXTERNAL` | 50000 | | TRANSFER_EXTERNAL | salary |
+| `+50000 salary #externaltransfer` | 50000 | | TRANSFER_EXTERNAL | salary |
 | `800 gym membership` | | 800 | GYM | gym membership |
-| `500 electricity bill [HOME]` | | 500 | HOME | electricity bill |
+| `500 electricity bill #HOME` | | 500 | HOME | electricity bill |
 
 ### Goes to Needs Review
 
@@ -125,10 +126,10 @@ Messages are parsed if they match:
 
 ### Category detection order (highest priority first)
 
-1. **Bracket tag** — `[FOOD]` in the message always wins
+1. **Hashtag** — `#FOOD` or `#food` in the message always wins; also resolves shortcuts like `#internaltransfer`
 2. **Description map** — learned from past manually corrected CSVs
-3. **Keyword/alias scan** — e.g. `zomato` → FOOD, `uber` → LOCAL_TRAVEL
-4. **Investment regex** — message contains `invest` or `investment`
+3. **Alias scan** — full-phrase first (`south table`), then word-by-word (`zomato` → FOOD, `uber` → LOCAL_TRAVEL)
+4. **Fuzzy match** — catches common typos (`resturant` → FOOD, `grocceries` → GROCERIES)
 5. **Empty** — left blank for manual correction
 
 ---
@@ -160,10 +161,11 @@ Defined in `scripts/categories.py`. All category values are uppercase.
 | `SPECIAL` | one-off special expenses |
 | `PERSONAL` | personal items |
 
-To add a new alias (e.g. `swiggy` → FOOD), add a line to `_CATEGORY_ALIASES` in `scripts/categories.py`:
+To add a new alias (e.g. `swiggy` → FOOD) or a `#hashtag` shortcut, add a line to `USER_OVERRIDES` in `scripts/categories.py`:
 
 ```python
-'swiggy': Category.FOOD,
+'swiggy':           Category.FOOD,
+'internaltransfer': Category.TRANSFER_INTERNAL,
 ```
 
 ---

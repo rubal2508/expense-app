@@ -13,12 +13,16 @@
 - Messages with a "-" prefixed amount go to Needs Review
 
 ## Categories
-- Add a Category column; messages tagged `[string]` get `category = string`
-- Messages containing keyword "invest" or "investment" get `category = INVESTMENT`
+- Add a Category column; messages tagged `#string` get `category = string`
+- `#tag` resolves via USER_OVERRIDES → exact enum match → underscore-normalised enum match; unrecognised tags fall back to empty so the alias scan can take over
+- Shorthand hashtags supported (e.g. `#internaltransfer` → TRANSFER_INTERNAL) via underscore normalisation or USER_OVERRIDES
+- Messages containing keyword "invest" or "investment" get `category = INVESTMENT` (via USER_OVERRIDES)
 - Normalise duplicate category variants ("invest" vs "investment") using a Category enum
 - Update Category enum values to match the full app category list
-- `[string]` bracket notation must resolve through the alias map to a valid enum value; unrecognised brackets fall back to empty so the keyword scan can take over
 - Extract Category enum and aliases into `categories.py`, shared across all scripts
+- Single `USER_OVERRIDES` dict in `categories.py` for all keyword and #hashtag shortcuts
+- Fuzzy alias matching via `difflib.get_close_matches` catches common spelling mistakes
+- Full-phrase alias scan (longest match first) fixes multi-word aliases like "south table", "mutual fund"
 
 ## Output Format
 - Split Amount into two columns: Credit ("+") and Debit (no sign); "-" goes to Needs Review
