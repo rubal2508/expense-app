@@ -266,14 +266,8 @@ class TestParseChat(unittest.TestCase):
         parsed, _ = run_parse([wa_msg('15/02/26', 'Alice', '₹460 zomato')], 'feb_2026')
         self.assertEqual(parsed[0]['amount'], 460.0)
 
-    def test_amount_only_no_description(self):
-        parsed, _ = run_parse([wa_msg('15/02/26', 'Alice', '100')], 'feb_2026')
-        self.assertEqual(len(parsed), 1)
-        self.assertEqual(parsed[0]['amount'], 100.0)
-        self.assertEqual(parsed[0]['description'], '')
-
-    def test_decimal_amount_no_description(self):
-        parsed, _ = run_parse([wa_msg('15/02/26', 'Alice', '100.00')], 'feb_2026')
+    def test_rupee_decimal_with_description(self):
+        parsed, _ = run_parse([wa_msg('15/02/26', 'Alice', '100.00 food')], 'feb_2026')
         self.assertEqual(len(parsed), 1)
         self.assertEqual(parsed[0]['amount'], 100.0)
 
@@ -285,10 +279,20 @@ class TestParseChat(unittest.TestCase):
         parsed, _ = run_parse([wa_msg('15/02/26', 'Alice', '100,000 rent')], 'feb_2026')
         self.assertEqual(parsed[0]['amount'], 100000.0)
 
-    def test_comma_format_no_description(self):
-        parsed, _ = run_parse([wa_msg('15/02/26', 'Alice', '1,00,000')], 'feb_2026')
-        self.assertEqual(len(parsed), 1)
-        self.assertEqual(parsed[0]['amount'], 100000.0)
+    def test_amount_only_to_review(self):
+        _, unparsed = run_parse([wa_msg('15/02/26', 'Alice', '100')], 'feb_2026')
+        self.assertEqual(len(unparsed), 1)
+        self.assertIn('No description', unparsed[0]['reason'])
+
+    def test_decimal_only_to_review(self):
+        _, unparsed = run_parse([wa_msg('15/02/26', 'Alice', '100.00')], 'feb_2026')
+        self.assertEqual(len(unparsed), 1)
+        self.assertIn('No description', unparsed[0]['reason'])
+
+    def test_comma_amount_only_to_review(self):
+        _, unparsed = run_parse([wa_msg('15/02/26', 'Alice', '1,00,000')], 'feb_2026')
+        self.assertEqual(len(unparsed), 1)
+        self.assertIn('No description', unparsed[0]['reason'])
 
     # ── Month filtering ───────────────────────────────────────────────────────
 

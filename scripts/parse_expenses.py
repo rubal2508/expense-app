@@ -257,7 +257,13 @@ def parse_chat(filepath: str, month_label: str = None):
             exp_m = EXPENSE_RE.match(sub)
             if exp_m:
                 sign, amount_raw, text_raw = exp_m.groups()
-                text_raw = text_raw or ''
+                if not text_raw or not text_raw.strip():
+                    unparsed.append({
+                        'line_no': line_no, 'date': effective_date, 'person': person,
+                        'text': sub, 'reason': 'No description provided',
+                        'key': make_key(effective_date, person, sub),
+                    })
+                    continue
                 if sign == '-':
                     unparsed.append({
                         'line_no': line_no, 'date': effective_date, 'person': person,
