@@ -56,7 +56,6 @@ USER_OVERRIDES: dict[str, Category] = {
 
     'transport':         Category.LOCAL_TRAVEL,
     'auto':              Category.LOCAL_TRAVEL,
-    'travel':            Category.LOCAL_TRAVEL,
     'cab':               Category.LOCAL_TRAVEL,
     'uber':              Category.LOCAL_TRAVEL,
     'ola':               Category.LOCAL_TRAVEL,
@@ -65,6 +64,7 @@ USER_OVERRIDES: dict[str, Category] = {
 
     'airport':           Category.LONG_TRAVEL,
     'flight':            Category.LONG_TRAVEL,
+    'travel':            Category.LONG_TRAVEL,
 
     'health':            Category.MEDICAL,
     'medical':           Category.MEDICAL,
@@ -119,10 +119,13 @@ USER_OVERRIDES: dict[str, Category] = {
     'tax':               Category.TRANSFER_EXTERNAL,
     'ITR':               Category.TRANSFER_EXTERNAL,
     'donate':            Category.TRANSFER_EXTERNAL,
+    'income':            Category.TRANSFER_EXTERNAL,
+    'external':            Category.TRANSFER_EXTERNAL,
 
     'internaltransfer':  Category.TRANSFER_INTERNAL,
     'pnb':               Category.TRANSFER_INTERNAL,
     'cash':              Category.TRANSFER_INTERNAL,
+    'internal':          Category.TRANSFER_INTERNAL,
 
     'flowers':           Category.TREATS_AND_GIFTS,
     'gift':              Category.TREATS_AND_GIFTS,
@@ -131,6 +134,9 @@ USER_OVERRIDES: dict[str, Category] = {
     'home':              Category.HOME,
 
     'book':              Category.OTHER_NON_ESSENTIALS,
+    'noness':            Category.OTHER_NON_ESSENTIALS,
+
+    'others':              Category.OTHER_ESSENTIALS,
 
     'party':             Category.REGULAR_PARTY_VACATION,
     'movie':             Category.REGULAR_PARTY_VACATION,
